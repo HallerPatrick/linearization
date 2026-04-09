@@ -1,0 +1,76 @@
+description: "Off-the-shelf FLA Mamba2 (from scratch)"
+
+training:
+  model_name: "mamba2.fla_mamba2"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp2/hallepat/subq_dataset"
+  from_checkpoint: null
+  log_every_step: 10
+  wandb_enabled: false
+  wandb_project: "xqwen"
+  splits: "0.0|0.0|0.2"
+  optimizer: "adamw"
+  lr_1d: null
+
+  stage_1:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_2:
+    lr: 2e-3
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_3:
+    lr: 3e-4
+    lr_scheduler: "linear"
+    batch_size: 32
+
+model:
+  context_length: 512
+  copy_teacher_params: false
+  freeze: false
+  from_scratch: true
+  extra_configs:
+    vocab_size: 32000
+    hidden_size: 576
+    state_size: 128
+    num_hidden_layers: 30
+    num_heads: 18
+    head_dim: 64
+    layer_norm_epsilon: 1e-5
+    pad_token_id: 0
+    bos_token_id: 1
+    eos_token_id: 2
+    expand: 2
+    conv_kernel: 4
+    n_groups: 1
+    use_bias: false
+    use_conv_bias: true
+    hidden_act: "silu"
+    initializer_range: 0.02
+    residual_in_fp32: true
+    time_step_rank: "auto"
+    time_step_min: 0.001
+    time_step_max: 0.1
+    time_step_floor: 0.0001
+    rescale_prenorm_residual: true
+    use_cache: false
+    rms_norm: true
+    chunk_size: 256
+    fuse_cross_entropy: false
+    tie_word_embeddings: false
+
+teacher_model:
+  model_name: "HuggingFaceTB/SmolLM2-135M"
+  use: false
+
+dataset:
+  output_path: /vol/tmp2/hallepat/data/fineweb-3B-mamba
+  hugging_face_id: ["PatrickHaller/fineweb-3B"]
+  split: "train"
+  subset: "0.5"
+
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "HuggingFaceTB/SmolLM2-135M"

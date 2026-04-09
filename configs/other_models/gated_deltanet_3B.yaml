@@ -1,0 +1,53 @@
+description: "Attention Alignemnt Experiments"
+
+training:
+  model_name: "gated_deltanet.llama_gated_deltanet"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp2/hallepat/subq_dataset"
+  # from_checkpoint: /vol/tmp2/hallepat/subq_dataset/run_20260103-1324/checkpoint-matrix-mixing
+  from_checkpoint: /vol/tmp2/hallepat/subq_dataset/run_20260103-1534/checkpoint-hidden-to-hidden
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen" # Insert WandB Project Name
+  splits: "0.0|0.0|0.6"
+  # splits: "0.0|0.0|0.8"
+
+  stage_1:
+    lr: 2e-3
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_2:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 10
+  stage_3:
+    lr: 1.5e-5
+    lr_scheduler: "linear"
+    batch_size: 8
+    # ce_only_stage: True
+    # ce_only_share: 0.5
+    # extends_seq_length: True
+    # extends: [1024, 2048, 4096]
+
+model:
+  context_length: 512
+  copy_teacher_params: True
+  freeze: False
+
+teacher_model:
+  model_name: "HuggingFaceTB/SmolLM3-3B-Base"
+  use: True
+
+dataset:
+  output_path: /vol/tmp2/hallepat/data/fineweb-10B-deltanet-instruct
+  hugging_face_id: ["PatrickHaller/fineweb-10B"]
+  # hugging_face_id: ["Salesforce/wikitext", "wikitext-2-v1"]
+  split: "train"
+  subset: "1.0"
+  
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "HuggingFaceTB/SmolLM3-3B-Base"
+
+

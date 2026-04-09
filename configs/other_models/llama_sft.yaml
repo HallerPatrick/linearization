@@ -1,0 +1,47 @@
+# Model arguments
+model_name_or_path: HuggingFaceTB/SmolLM2-1.7B
+model_revision: main
+torch_dtype: bfloat16
+attn_implementation: eager
+
+# Data training arguments
+# chat_template: "{% for message in messages %}{% if loop.first and messages[0]['role'] != 'system' %}{{ '<|im_start|>system\nYou are a helpful AI assistant, trained by Patrick Haller<|im_end|>\n' }}{% endif %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
+chat_template: "{% for message in messages %}{% if loop.first and messages[0]['role'] != 'system' %}{{ '<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n' }}{% endif %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
+dataset_name: HuggingFaceTB/smoltalk
+dataset_config: all
+dataset_train_split: train
+dataset_test_split: test
+dataset_num_proc: 24
+
+# SFT trainer config
+bf16: true
+do_eval: false
+eval_strategy: epoch
+gradient_accumulation_steps: 1
+gradient_checkpointing: false
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+ddp_find_unused_parameters: false
+hub_model_id: smollm2-1.7B-sft
+hub_strategy: every_save
+learning_rate: 3.0e-04 
+log_level: info
+logging_steps: 5
+logging_strategy: steps
+lr_scheduler_type: cosine
+# max_seq_length: 1024
+max_length: 1024
+pad_to_multiple_of: 64
+max_steps: -1
+num_train_epochs: 1
+output_dir: /vol/tmp/hallepat/data/llama-sft
+overwrite_output_dir: true
+per_device_eval_batch_size: 4
+per_device_train_batch_size: 3
+push_to_hub: false
+remove_unused_columns: true
+report_to:
+- wandb
+save_strategy: "epoch"
+seed: 42
+warmup_ratio: 0.1

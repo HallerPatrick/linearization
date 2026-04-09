@@ -1,0 +1,90 @@
+description: "Experiment 2 – Gating Granularity Interpolation sweep"
+
+# SmolLM2-135M teacher for small-scale runs; switch to SmolLM2-1.7B for full runs.
+# This config covers the full granularity sweep at small scale.
+# For a quick sanity check, set total_tokens: 300M and context_length: 512.
+
+training:
+  model_name: "grouped_gated_deltanet.llama_grouped_gated_deltanet"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp2/hallepat/subq_dataset"
+  from_checkpoint: null
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen"
+  splits: "0.026|0.053|0.921"
+
+  stage_1:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 20
+  stage_2:
+    lr: 2e-3
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 20
+  stage_3:
+    lr: 3e-4
+    lr_scheduler: "linear"
+    batch_size: 16
+
+  optimizer: "adamw"
+  lr_1d: 0.007
+
+model:
+  context_length: 512
+  copy_teacher_params: true
+  freeze: false
+
+teacher_model:
+  model_name: "HuggingFaceTB/SmolLM2-135M"
+  use: true
+
+dataset:
+  output_path: /vol/tmp2/hallepat/data/fineweb-3B-ggdn
+  hugging_face_id: ["PatrickHaller/fineweb-3B"]
+  split: "train"
+  subset: "1.0"
+
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "HuggingFaceTB/SmolLM2-135M"
+
+# ── Sweep definition ────────────────────────────────────────────────────────
+# For SmolLM2-135M: hidden_size=576, num_heads=9, head_k_dim=64.
+# d_k = 64; valid group sizes must divide 64.
+#
+# To run the sweep, override gate_group_size per job:
+#   uv run python train.py --config configs/granularity_sweep.yaml \
+#       --extra-config model.extra_configs.gate_group_size=64
+#
+# Group sizes to sweep:
+#   64  → scalar per head     = Gated DeltaNet behaviour
+#   32  → 2 groups per head
+#   16  → 4 groups per head
+#    8  → 8 groups per head
+#    4  → 16 groups per head
+#    2  → 32 groups per head
+#    1  → per-channel gate    = Kimi / KDA behaviour
+
+sweep:
+  gate_group_size:
+    - 64   # Gated DeltaNet (scalar per head)
+    - 32   # 2 groups
+    - 16   # 4 groups
+    - 8    # 8 groups
+    - 4    # 16 groups
+    - 2    # 32 groups
+    - 1    # Kimi (per-channel)
+
+evaluation:
+  benchmarks:
+    - lambada
+    - winogrande
+    - arc_easy
+    - arc_challenge
+    - piqa
+    - hellaswag
+  niah:
+    - s_niah_1
+    - s_niah_2

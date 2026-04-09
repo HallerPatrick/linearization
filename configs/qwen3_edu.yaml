@@ -1,0 +1,50 @@
+description: "Attention Alignemnt Experiments"
+
+training:
+  model_name: "xqwen3"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp/hallepat/subq_dataset"
+  # from_checkpoint: "/vol/tmp/hallepat/subq_dataset/checkpoint-hidden-to-hidden"
+  from_checkpoint: null
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen" # Insert WandB Project Name
+  # splits: "0.01|0.09|0.9"
+  splits: "0.0|0.0|1.0"
+
+  stage_1:
+    lr: 3e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 1
+  stage_2:
+    lr: 3e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8 
+  stage_3:
+    lr: 8e-4
+    lr_scheduler: "linear"
+    batch_size: 10
+
+
+model:
+  context_length: 2048
+  copy_teacher_params: True
+  freeze: False
+
+teacher_model:
+  model_name: "Qwen/Qwen3-0.6B"
+  use: False
+
+dataset:
+  output_path: /vol/tmp/hallepat/data/fineweb-edu-100B
+  hugging_face_id: ["HuggingFaceFW/fineweb-edu", "sample-100BT"]
+  # hugging_face_id: ["Salesforce/wikitext", "wikitext-2-v1"]
+  split: "train"
+  subset: "1.0"
+  
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "Qwen/Qwen3-0.6B"
+
+

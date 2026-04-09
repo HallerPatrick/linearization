@@ -1,0 +1,55 @@
+# Model arguments
+model_name_or_path: /vol/tmp/hallepat/data/smollm2-1.7B-sft-large
+torch_dtype: bfloat16
+
+# Data training arguments
+dataset_mixture:
+  datasets:
+    - id: HuggingFaceH4/ultrafeedback_binarized
+      config: default
+      split: train_prefs           
+      columns:
+        - chosen
+        - rejected
+      weight: 1.0
+    - id: HuggingFaceH4/ultrafeedback_binarized
+      config: default
+      split: test_prefs
+      columns:
+        - chosen
+        - rejected
+      weight: 1.0
+  test_split_size: 2000
+  seed: 0
+dataset_num_proc: 12
+
+# DPOTrainer arguments
+bf16: true
+beta: 0.5
+do_eval: true
+hub_private_repo: true
+eval_strategy: steps
+eval_steps: 100
+gradient_accumulation_steps: 8
+gradient_checkpointing: false
+gradient_checkpointing_kwargs:
+  use_reentrant: False
+hub_model_id: smollm2-1.7B-dpo
+learning_rate: 1.0e-6
+log_level: info
+logging_steps: 10
+lr_scheduler_type: cosine
+max_length: 1024
+max_prompt_length: 512
+num_train_epochs: 3
+optim: adamw_torch
+output_dir: /vol/tmp/hallepat/data/smollm2-1.7B-dpo
+# pad_to_multiple_of: 64
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 4
+push_to_hub: true
+report_to:
+- wandb
+save_strategy: "no"
+seed: 42
+warmup_ratio: 0.1

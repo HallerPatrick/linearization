@@ -1,0 +1,8 @@
+xlstm
+mlstm_kernels
+transformers
+datasets
+accelerate
+omegaconf
+setuptools
+flash-linear-attention

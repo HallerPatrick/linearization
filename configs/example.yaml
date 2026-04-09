@@ -1,0 +1,45 @@
+description: "Attention Alignemnt Experiments"
+
+training:
+  model_name: "xlstm_model"
+  batch_size: 1
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp/hallepat/subq_dataset"
+  log_every_step: 10
+  wandb_enabled: false
+  wandb_project: "" # Insert WandB Project Name
+  splits: "0.1|0.2|0.7"
+
+  stage_1:
+    lr: 0.001
+    lr_scheduler: "linear"
+  stage_2:
+    lr: 0.001
+    lr_scheduler: "warmup_stable_decay"
+  stage_3:
+    lr: 0.001
+    lr_scheduler: "warmup_stable_decay"
+
+
+model:
+  context_length: 512
+  copy_teacher_params: True
+  freeze: False
+
+teacher_model:
+  model_name: "HuggingFaceTB/SmolLM-135M"
+  use: True
+
+dataset:
+  output_path: /vol/tmp/hallepat/data/fineweb-1B
+  # hugging_face_id: ["PatrickHaller/fineweb-1B"]
+  hugging_face_id: ["Salesforce/wikitext", "wikitext-2-v1"]
+  split: "train"
+  subset: "1.0"
+  
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "HuggingFaceTB/SmolLM2-135M"
+
+

@@ -1,0 +1,46 @@
+description: "Gemma4 x GatedDeltaNet Distillation"
+
+training:
+  model_name: "gated_deltanet.gemma4_gated_deltanet"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp2/hallepat/subq_dataset"
+  from_checkpoint: null
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen" # Insert WandB Project Name
+  splits: "0.0|0.1|0.6"
+  optimizer: "adamw"
+  lr_1d: null
+
+  stage_1:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_2:
+    lr: 2e-3
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_3:
+    lr: 3e-4
+    lr_scheduler: "linear"
+    batch_size: 4
+
+model:
+  context_length: 512
+  copy_teacher_params: True
+  freeze: False
+
+teacher_model:
+  model_name: "google/gemma-4-E2B"
+  use: True
+
+dataset:
+  output_path: /vol/tmp2/hallepat/data/fineweb-3B-deltanet-large
+  hugging_face_id: ["PatrickHaller/fineweb-3B"]
+  split: "train"
+  subset: "1.0"
+
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "google/gemma-4-E2B"

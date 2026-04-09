@@ -1,0 +1,50 @@
+description: "Attention Alignemnt Experiments"
+
+training:
+  model_name: "xgemma"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp/hallepat/subq_dataset"
+  # from_checkpoint: "/vol/tmp/hallepat/subq_dataset/checkpoint-hidden-to-hidden"
+  from_checkpoint: null
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen" # Insert WandB Project Name
+  # splits: "0.0|0.0|0.85"
+  splits: "0.05|0.15|0.80"
+
+  stage_1:
+    lr: 3e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_2:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_3:
+    lr: 1e-4
+    lr_scheduler: "linear"
+    batch_size: 4
+
+
+model:
+  context_length: 512
+  copy_teacher_params: True
+  freeze: False
+
+teacher_model:
+  model_name: "google/gemma-3-1b-pt"
+  use: True
+
+dataset:
+  output_path: /vol/tmp/hallepat/data/fineweb-3B-gemma3
+  hugging_face_id: ["PatrickHaller/fineweb-3B"]
+  # hugging_face_id: ["Salesforce/wikitext", "wikitext-2-v1"]
+  split: "train"
+  subset: "1.0"
+  
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "google/gemma-3-1b-pt"
+
+

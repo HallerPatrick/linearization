@@ -1,0 +1,61 @@
+description: "Attention Alignemnt Experiments"
+# 1B 1-Stage
+# GDN: /vol/tmp2/hallepat/subq_dataset/run_20260216-1658/checkpoint-last
+# Kimi: /vol/tmp2/hallepat/subq_dataset/run_20260216-1947/checkpoint-matrix-mixing
+# GLA: /vol/tmp2/hallepat/subq_dataset/run_20260216-2332/checkpoint-matrix-mixing
+# xLSTM: 
+
+training:
+  # model_name: "gated_deltanet.llama_gated_deltanet"
+  model_name: "xlstm.xlstm_llama"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp2/hallepat/subq_dataset"
+  # from_checkpoint: /vol/tmp2/hallepat/subq_dataset/run_20251217-1125/checkpoint-hidden-to-hidden
+  # from_checkpoint: /vol/tmp2/hallepat/subq_dataset/run_20260107-2052/checkpoint-last
+  from_checkpoint: null
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen" # Insert WandB Project Name
+  splits: "0.1|0.0|0.0"
+  # splits: "0.0|0.0|0.8"
+
+  stage_1:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 12
+  stage_2:
+    lr: 2e-3
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 12
+  stage_3:
+    lr: 1e-4
+    lr_scheduler: "cosine_with_min_lr"
+    batch_size: 12
+    # ce_only_stage: True
+    # ce_only_share: 0.5
+    # extends_seq_length: True
+    # extends: [1024, 2048, 4096]
+
+model:
+  context_length: 512
+  copy_teacher_params: True
+  freeze: False
+
+teacher_model:
+  model_name: "HuggingFaceTB/SmolLM2-1.7B"
+  use: True
+
+dataset:
+  output_path: /vol/tmp2/hallepat/data/fineweb-edu-10B
+  # hugging_face_id: ["PatrickHaller/fineweb-30B"]
+  hugging_face_id: ["/vol/tmp/hallepat/data/fineweb-edu-10B"]
+  # hugging_face_id: ["Salesforce/wikitext", "wikitext-2-v1"]
+  split: "train"
+  subset: "1.0"
+  
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "HuggingFaceTB/SmolLM2-1.7B"
+
+

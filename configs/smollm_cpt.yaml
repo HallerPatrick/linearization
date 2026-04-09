@@ -1,0 +1,58 @@
+description: "Attention Alignemnt Experiments"
+
+training:
+  model_name: "xllama"
+  gradient_accumulation_steps: 4
+  output_dir: "/vol/tmp/hallepat/subq_dataset"
+  # no rope
+  from_checkpoint: "/vol/tmp/hallepat/subq_dataset/run_20251128-1901/checkpoint-162800"
+  # rope
+  # from_checkpoint: "/vol/tmp/hallepat/subq_dataset/run_20251126-1614/checkpoint-last"
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen" # Insert WandB Project Name
+  splits: "0.0|0.0|1.00"
+  # splits: "0.05|0.15|0.80"
+  # splits: "0.05|0.15|0.0"
+
+  stage_1:
+    lr: 2.5e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 12
+  stage_2:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 16
+  stage_3:
+    lr: 1e-5
+    lr_scheduler: "linear"
+    batch_size: 4
+    # ce_only_stage: True
+    # ce_only_share: 0.5
+    # extends_seq_length: True
+    # extends: [1024, 2048, 4096]
+
+model:
+  context_length: 2048
+  copy_teacher_params: False
+  freeze: False
+  apply_rope: False
+
+teacher_model:
+  model_name: "HuggingFaceTB/SmolLM2-1.7B"
+  use: False
+
+dataset:
+  output_path: /vol/tmp/hallepat/data/fineweb-3B-llama
+  hugging_face_id: ["PatrickHaller/fineweb-3B"]
+  # hugging_face_id: ["Salesforce/wikitext", "wikitext-2-v1"]
+  split: "train"
+  subset: "1.0"
+  
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "HuggingFaceTB/SmolLM2-1.7B"
+
+
+

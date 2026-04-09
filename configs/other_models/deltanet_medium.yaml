@@ -1,0 +1,52 @@
+description: "Attention Alignemnt Experiments"
+
+training:
+  model_name: "deltanet.llama_deltanet"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp2/hallepat/subq_dataset"
+  from_checkpoint: null
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen" # Insert WandB Project Name
+  splits: "0.026|0.053|0.92"
+  # splits: "0.0|0.0|0.92"
+
+  stage_1:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_2:
+    lr: 2e-3
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_3:
+    lr: 3e-4
+    lr_scheduler: "linear"
+    batch_size: 8
+    # ce_only_stage: True
+    # ce_only_share: 0.5
+    # extends_seq_length: True
+    # extends: [1024, 2048, 4096]
+
+model:
+  context_length: 512
+  copy_teacher_params: True
+  freeze: False
+
+teacher_model:
+  model_name: "HuggingFaceTB/SmolLM2-360M"
+  use: True
+
+dataset:
+  output_path: /vol/tmp2/hallepat/data/fineweb-3B-deltanet
+  hugging_face_id: ["PatrickHaller/fineweb-3B"]
+  # hugging_face_id: ["Salesforce/wikitext", "wikitext-2-v1"]
+  split: "train"
+  subset: "1.0"
+  
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "HuggingFaceTB/SmolLM2-360M"
+
+

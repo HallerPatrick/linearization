@@ -1,0 +1,54 @@
+description: "Attention Alignemnt Experiments"
+
+training:
+  model_name: "gated_deltanet.qwen3_gated_deltanet"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp/hallepat/subq_dataset"
+  # from_checkpoint: /vol/tmp/hallepat/subq_dataset/run_20260330-0016/checkpoint-hidden-to-hidden
+  # from_checkpoint: /vol/tmp/hallepat/subq_dataset/run_20260401-0101/checkpoint-hidden-to-hidden
+  from_checkpoint: null
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen" # Insert WandB Project Name
+  # splits: "0.0|0.1|0.75"
+  # splits: "0.05|0.15|0.05"
+  splits: "0.0|0.1|0.5"
+  optimizer: "adamw"
+  lr_1d: null
+
+  stage_1:
+    lr: 3e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 6
+  stage_2:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_3:
+    lr: 5e-5
+    lr_scheduler: "linear"
+    batch_size: 4
+
+
+model:
+  context_length: 512
+  copy_teacher_params: True
+  freeze: False
+
+teacher_model:
+  model_name: "Qwen/Qwen3-1.7B"
+  use: True
+
+dataset:
+  output_path: /vol/tmp/hallepat/data/fineweb-3B
+  hugging_face_id: ["PatrickHaller/fineweb-3B"]
+  # hugging_face_id: ["Salesforce/wikitext", "wikitext-2-v1"]
+  split: "train"
+  subset: "1.0"
+  
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "Qwen/Qwen3-1.7B"
+
+
