@@ -219,6 +219,10 @@ def initialize_model_and_teacher(config, accelerator, tokenizer, output_dir):
     model = model.to(dtype=torch.bfloat16)
     accelerator.print(model)
 
+    if config.training.get("gradient_checkpointing", False):
+        accelerator.print("Enabling gradient checkpointing...")
+        model.gradient_checkpointing_enable()
+
     num_params = sum(p.numel() for p in model.parameters())
     num_params_human = human_readable_number(num_params)
     accelerator.print(f"Number of parameters: {num_params:_} ({num_params_human})")
