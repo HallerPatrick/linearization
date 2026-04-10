@@ -28,11 +28,16 @@ logger = logging.get_logger(__name__)
 
 class LlamaRetNetConfig(RetNetConfig):
     model_type = "llama_retnet"
-    rms_norm_eps: float = 1e-6
-    mlp_bias: bool = False
-    intermediate_size: int = 1024
-    expand_k: float = 0.5
-    expand_v: float = 1.0
+
+    def __init__(self, rms_norm_eps: float = 1e-6, mlp_bias: bool = False,
+                 intermediate_size: int = 1024, expand_k: float = 0.5,
+                 expand_v: float = 1.0, **kwargs):
+        super().__init__(**kwargs)
+        self.rms_norm_eps = rms_norm_eps
+        self.mlp_bias = mlp_bias
+        self.intermediate_size = intermediate_size
+        self.expand_k = expand_k
+        self.expand_v = expand_v
 
 class MultiScaleRetention(FlaMultiScaleRetention):
     r"""

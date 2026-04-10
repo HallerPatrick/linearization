@@ -55,9 +55,12 @@ def naive_kda_gate(
     return g
 
 class LlamaKDAConfig(KDAConfig):
-    rms_norm_eps: float = 1e-6
-    mlp_bias: bool = False
-    intermediate_size: int = 1024
+    def __init__(self, rms_norm_eps: float = 1e-6, mlp_bias: bool = False,
+                 intermediate_size: int = 1024, **kwargs):
+        super().__init__(**kwargs)
+        self.rms_norm_eps = rms_norm_eps
+        self.mlp_bias = mlp_bias
+        self.intermediate_size = intermediate_size
 
 class KimiDeltaAttention(nn.Module):
     """

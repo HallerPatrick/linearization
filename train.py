@@ -29,8 +29,8 @@ from transformers import (
 )
 
 try:
-    from models.qwen import TeacherQwen3ForCausalLM
-    from models.opt import TeacherOPTForCausalLM
+    # from models.qwen import TeacherQwen3ForCausalLM
+    # from models.opt import TeacherOPTForCausalLM
     from models.llama import TeacherLlamaForCausalLM
 except ModuleNotFoundError:
     TeacherQwen3ForCausalLM = TeacherOPTForCausalLM = TeacherLlamaForCausalLM = None
@@ -45,6 +45,10 @@ try:
 except ModuleNotFoundError:
     xQwen3Config = xOPTConfig = xGemma3Config = None
     xQwen3ForCausalLM = xOPTForCausalLM = xGemma3ForCausalLM = None
+except ImportError:
+    xQwen3Config = xOPTConfig = xGemma3Config = None
+    xQwen3ForCausalLM = xOPTForCausalLM = xGemma3ForCausalLM = None
+
 
 from optimizer import get_optimizer
 
@@ -342,7 +346,7 @@ def train_end_to_end(
             progress_bar.set_postfix({"loss": loss.item(), "lr": last_lr})
             progress_bar.update(config.training.log_every_step)
 
-        if step % checkpoint_every == 0 and accelerator.is_local_main_process:
+        if step % checkpoint_every == 0 and accelerator.is_main_process:
             checkpoint_dir = os.path.join(output_dir, f"checkpoint-{step}")
             save_model(accelerator.unwrap_model(student_model), hf_model_config, tokenizer, checkpoint_dir)
             accelerator.print(f"Checkpoint saved to: {checkpoint_dir}")
@@ -441,7 +445,7 @@ def train_hidden_alignment(
         if step % 500 == 0:
             accelerator.wait_for_everyone()
 
-    if accelerator.is_local_main_process:
+    if accelerator.is_main_process:
         checkpoint_dir = os.path.join(output_dir, "checkpoint-hidden-to-hidden")
         save_model(
             accelerator.unwrap_model(student_model), hf_model_config, tokenizer, checkpoint_dir
@@ -547,7 +551,7 @@ def train_token_mixer(
         if step % 1000 == 0:
             accelerator.wait_for_everyone()
 
-    if accelerator.is_local_main_process:
+    if accelerator.is_main_process:
         checkpoint_dir = os.path.join(output_dir, "checkpoint-matrix-mixing")
         save_model(
             accelerator.unwrap_model(student_model), hf_model_config, tokenizer, checkpoint_dir
@@ -626,10 +630,18 @@ def run_training(config_path: str):
     config.model.apply_rope = config.model.get("apply_rope", False)
     config.training.setdefault("log_every_step", 1)
 
-    run_dir = "run_" + datetime.datetime.now().strftime("%Y%m%d-%H%M")
-    output_dir = os.path.join(config.training.output_dir, run_dir)
-
     accelerator = _setup_accelerator_and_output(config)
+
+    # Generate run_dir on rank 0 and broadcast so all nodes use the same path.
+    if accelerator.is_main_process:
+        run_dir = "run_" + datetime.datetime.now().strftime("%Y%m%d-%H%M")
+    else:
+        run_dir = None
+    if torch.distributed.is_initialized():
+        run_dir_container = [run_dir]
+        torch.distributed.broadcast_object_list(run_dir_container, src=0)
+        run_dir = run_dir_container[0]
+    output_dir = os.path.join(config.training.output_dir, run_dir)
 
     if accelerator.is_local_main_process:
         os.makedirs(output_dir, exist_ok=True)
@@ -667,10 +679,11 @@ def run_training(config_path: str):
         stage_dataloaders.append((dl, stage_fn))
         start = end
 
-    # Save config and tokenizer before training
-    with open(os.path.join(output_dir, "config.yaml"), "w") as f:
-        OmegaConf.save(config, f)
-    tokenizer.save_pretrained(output_dir)
+    # Save config and tokenizer before training (main process only)
+    if accelerator.is_main_process:
+        with open(os.path.join(output_dir, "config.yaml"), "w") as f:
+            OmegaConf.save(config, f)
+        tokenizer.save_pretrained(output_dir)
 
     if config.training.wandb_enabled:
         wandb_project = config.training.get("wandb_project", "mohawk")
@@ -713,9 +726,10 @@ def run_training(config_path: str):
 
     accelerator.end_training()
 
-    checkpoint_dir = os.path.join(output_dir, "checkpoint-last")
-    save_model(model, hf_model_config, tokenizer, checkpoint_dir)
-    accelerator.print(f"Final model saved to: {checkpoint_dir}")
+    if accelerator.is_main_process:
+        checkpoint_dir = os.path.join(output_dir, "checkpoint-last")
+        save_model(model, hf_model_config, tokenizer, checkpoint_dir)
+        accelerator.print(f"Final model saved to: {checkpoint_dir}")
 
 
 def run_lr_finder(config_path: str):
@@ -933,8 +947,8 @@ def preprocess(config, accelerator=None, ask_for_overwrite=False):
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
         return load_from_disk(tokenized_data_path), tokenizer
 
-    # Only main process downloads and tokenises; others wait for the cache to appear
-    if accelerator.is_local_main_process:
+    # Only global rank 0 downloads and tokenises; all others wait for the cache to appear
+    if accelerator.is_main_process:
         accelerator.print(f"Loading dataset: {hugging_face_id}")
         raw_datasets = load_dataset(
             *hugging_face_id,

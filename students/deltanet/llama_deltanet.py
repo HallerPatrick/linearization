@@ -164,9 +164,12 @@ def _naive_delta_rule_parallel(q, k, v, beta, BM=128, BN=32):
     return o, A
 
 class LlamaDeltaNetConfig(DeltaNetConfig):
-    rms_norm_eps: float = 1e-6
-    mlp_bias: bool = False
-    intermediate_size: int = 1024
+    def __init__(self, rms_norm_eps: float = 1e-6, mlp_bias: bool = False,
+                 intermediate_size: int = 1024, **kwargs):
+        super().__init__(**kwargs)
+        self.rms_norm_eps = rms_norm_eps
+        self.mlp_bias = mlp_bias
+        self.intermediate_size = intermediate_size
 
 class DeltaNet(nn.Module):
 

@@ -24,19 +24,23 @@ logger = logging.get_logger(__name__)
 
 class LlamaLAConfig(LAConfig):
     model_type = "llama_la"
-    rms_norm_eps: float = 1e-6
-    mlp_bias: bool = False
-    intermediate_size: int = 1024
-    hidden_act: str = "silu"
 
     def __init__(
         self,
         num_attention_heads: int = 8,
+        rms_norm_eps: float = 1e-6,
+        mlp_bias: bool = False,
+        intermediate_size: int = 1024,
+        hidden_act: str = "silu",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.num_heads = num_attention_heads
         self.num_attention_heads = num_attention_heads
+        self.rms_norm_eps = rms_norm_eps
+        self.mlp_bias = mlp_bias
+        self.intermediate_size = intermediate_size
+        self.hidden_act = hidden_act
 
 
 

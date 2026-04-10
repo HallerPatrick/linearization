@@ -231,9 +231,13 @@ def _copy_attn_to_mamba2_mixer(mixer, teacher_attn):
 
 class LlamaMamba2Config(Mamba2Config):
     model_type = "llama_mamba2"
-    rms_norm_eps: float = 1e-6
-    mlp_bias: bool = False
-    intermediate_size: int = 1024
+
+    def __init__(self, rms_norm_eps: float = 1e-6, mlp_bias: bool = False,
+                 intermediate_size: int = 1024, **kwargs):
+        super().__init__(**kwargs)
+        self.rms_norm_eps = rms_norm_eps
+        self.mlp_bias = mlp_bias
+        self.intermediate_size = intermediate_size
 
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
