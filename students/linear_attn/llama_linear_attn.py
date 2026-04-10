@@ -15,7 +15,7 @@ from fla import layers
 from fla.models.utils import FLAGenerationMixin
 from fla.models.linear_attn import LinearAttentionConfig as LAConfig
 from fla.layers.linear_attn import LinearAttention as FlaLinearAttention
-from fla.modules import RMSNorm
+from fla.modules import RMSNorm, ShortConvolution
 from fla.modules.feature_map import DPFPFeatureMap, HadamardFeatureMap, HedgehogFeatureMap, T2RFeatureMap
 from fla.ops.linear_attn import chunk_linear_attn, fused_chunk_linear_attn, fused_recurrent_linear_attn
 
@@ -32,6 +32,9 @@ class LlamaLAConfig(LAConfig):
         mlp_bias: bool = False,
         intermediate_size: int = 1024,
         hidden_act: str = "silu",
+        use_short_conv: bool = True,
+        conv_size: int = 4,
+        conv_bias: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -41,6 +44,9 @@ class LlamaLAConfig(LAConfig):
         self.mlp_bias = mlp_bias
         self.intermediate_size = intermediate_size
         self.hidden_act = hidden_act
+        self.use_short_conv = use_short_conv
+        self.conv_size = conv_size
+        self.conv_bias = conv_bias
 
 
 
@@ -69,6 +75,9 @@ class LinearAttention(FlaLinearAttention):
         do_feature_map_norm: bool = False,
         elementwise_affine: bool = True,
         norm_eps: float = 1e-5,
+        use_short_conv: bool = True,
+        conv_size: int = 4,
+        conv_bias: bool = False,
         **kwargs
     ):
         super().__init__()
@@ -141,6 +150,13 @@ class LinearAttention(FlaLinearAttention):
 
         self.o_proj = nn.Linear(self.value_dim, hidden_size, bias=False)
 
+        self.use_short_conv = use_short_conv
+        self.conv_size = conv_size
+        if use_short_conv:
+            self.q_conv1d = ShortConvolution(self.key_dim, conv_size, activation='silu')
+            self.k_conv1d = ShortConvolution(self.key_dim_per_group, conv_size, activation='silu')
+            self.v_conv1d = ShortConvolution(self.value_dim_per_group, conv_size, activation='silu')
+
         self.norm_q = norm_q
         self.norm_k = norm_k
 
@@ -151,9 +167,14 @@ class LinearAttention(FlaLinearAttention):
         **kwargs
     ) -> torch.Tensor:
         mode = self.mode
-        q = self.q_proj(hidden_states)
-        k = self.k_proj(hidden_states)
-        v = self.v_proj(hidden_states)
+        if self.use_short_conv:
+            q, _ = self.q_conv1d(x=self.q_proj(hidden_states))
+            k, _ = self.k_conv1d(x=self.k_proj(hidden_states))
+            v, _ = self.v_conv1d(x=self.v_proj(hidden_states))
+        else:
+            q = self.q_proj(hidden_states)
+            k = self.k_proj(hidden_states)
+            v = self.v_proj(hidden_states)
 
         q = rearrange(q, '... (h d) -> ... h d', h=self.num_heads)
         k = rearrange(k, '... (h d) -> ... h d', h=self.num_heads)
@@ -242,6 +263,9 @@ class LADecoderLayer(nn.Module):
                 feature_map=config.feature_map,
                 elementwise_affine=config.elementwise_affine,
                 norm_eps=config.norm_eps,
+                use_short_conv=config.use_short_conv,
+                conv_size=config.conv_size,
+                conv_bias=config.conv_bias,
                 layer_idx=layer_idx
             )
         self.mlp = llama.LlamaMLP(config)

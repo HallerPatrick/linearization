@@ -31,13 +31,17 @@ class LlamaRetNetConfig(RetNetConfig):
 
     def __init__(self, rms_norm_eps: float = 1e-6, mlp_bias: bool = False,
                  intermediate_size: int = 1024, expand_k: float = 0.5,
-                 expand_v: float = 1.0, **kwargs):
+                 expand_v: float = 1.0, use_short_conv: bool = True,
+                 conv_size: int = 4, conv_bias: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.rms_norm_eps = rms_norm_eps
         self.mlp_bias = mlp_bias
         self.intermediate_size = intermediate_size
         self.expand_k = expand_k
         self.expand_v = expand_v
+        self.use_short_conv = use_short_conv
+        self.conv_size = conv_size
+        self.conv_bias = conv_bias
 
 class MultiScaleRetention(FlaMultiScaleRetention):
     r"""
@@ -89,7 +93,7 @@ class MultiScaleRetention(FlaMultiScaleRetention):
         num_heads: int = 8,
         num_kv_heads: Optional[int] = None,
         feature_map: Optional[str] = None,
-        use_short_conv: bool = False,
+        use_short_conv: bool = True,
         conv_size: int = 4,
         conv_bias: bool = False,
         use_output_gate: bool = True,
@@ -330,6 +334,9 @@ class RetNetDecoderLayer(nn.Module):
                 elementwise_affine=config.elementwise_affine,
                 norm_eps=config.norm_eps,
                 fuse_norm=config.fuse_norm,
+                use_short_conv=config.use_short_conv,
+                conv_size=config.conv_size,
+                conv_bias=config.conv_bias,
                 layer_idx=layer_idx
             )
         self.mlp = llama.LlamaMLP(config)
