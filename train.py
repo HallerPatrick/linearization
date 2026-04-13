@@ -92,6 +92,22 @@ def save_model(model, model_config, tokenizer, output_dir):
     tokenizer.save_pretrained(output_dir)
 
 
+def push_model_to_hub(model_dir: str, repo_id: str, private: bool = False,
+                      wandb_run_url: str = None):
+    from huggingface_hub import HfApi
+
+    readme_path = os.path.join(model_dir, "README.md")
+    if wandb_run_url:
+        with open(readme_path, "w") as f:
+            f.write(f"# {repo_id.split('/')[-1]}\n\n")
+            f.write(f"**Training run:** [{wandb_run_url}]({wandb_run_url})\n")
+
+    api = HfApi()
+    api.create_repo(repo_id=repo_id, private=private, exist_ok=True)
+    api.upload_folder(folder_path=model_dir, repo_id=repo_id)
+    print(f"Model pushed to https://huggingface.co/{repo_id}")
+
+
 def load_config(config_path: str) -> OmegaConf:
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -724,12 +740,31 @@ def run_training(config_path: str):
 
         accelerator.wait_for_everyone()
 
+    # Capture W&B run URL and cross-link the HF model before end_training() closes the run.
+    hub_repo_id = config.training.get("push_to_hub", None)
+    wandb_run_url = None
+    if config.training.wandb_enabled and accelerator.is_main_process:
+        try:
+            import wandb as _wandb
+            if _wandb.run is not None:
+                wandb_run_url = _wandb.run.url
+                if hub_repo_id:
+                    _wandb.run.summary["hf_model"] = f"https://huggingface.co/{hub_repo_id}"
+        except ImportError:
+            pass
+
     accelerator.end_training()
 
     if accelerator.is_main_process:
         checkpoint_dir = os.path.join(output_dir, "checkpoint-last")
         save_model(model, hf_model_config, tokenizer, checkpoint_dir)
         accelerator.print(f"Final model saved to: {checkpoint_dir}")
+
+        if hub_repo_id:
+            accelerator.print(f"Pushing model to HuggingFace Hub: {hub_repo_id}")
+            hub_private = config.training.get("hub_private", True)
+            push_model_to_hub(checkpoint_dir, repo_id=hub_repo_id, private=hub_private,
+                              wandb_run_url=wandb_run_url)
 
 
 def run_lr_finder(config_path: str):
