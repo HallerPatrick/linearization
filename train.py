@@ -120,6 +120,26 @@ def _load_resume_state(checkpoint_dir):
     )
 
 
+def _get_cce_components(unwrapped_model):
+    """Return (body, classifier_weight) for use with linear_cross_entropy.
+
+    body(input_ids, attention_mask=...) must return an object with .last_hidden_state.
+    classifier_weight is the transposed-free weight matrix fed to linear_cross_entropy.
+    Raises RuntimeError if the model architecture is not recognised.
+    """
+    if hasattr(unwrapped_model, "model") and hasattr(unwrapped_model, "lm_head"):
+        return unwrapped_model.model, unwrapped_model.lm_head.weight
+    if hasattr(unwrapped_model, "transformer") and hasattr(unwrapped_model, "lm_head"):
+        return unwrapped_model.transformer, unwrapped_model.lm_head.weight
+    if hasattr(unwrapped_model, "backbone") and hasattr(unwrapped_model, "lm_head"):
+        return unwrapped_model.backbone, unwrapped_model.lm_head.weight
+    raise RuntimeError(
+        f"Cannot extract transformer body and LM head from "
+        f"{type(unwrapped_model).__name__} for cut_cross_entropy. "
+        "Set use_cut_cross_entropy: false to fall back to standard cross-entropy."
+    )
+
+
 def push_model_to_hub(model_dir: str, repo_id: str, private: bool = False,
                       wandb_run_url: str = None):
     from huggingface_hub import HfApi
@@ -164,6 +184,10 @@ def _resolve_teacher_cls(config, teacher_hf_config):
         return AutoModelForCausalLM
     if arch.startswith("llama") and TeacherLlamaForCausalLM is not None:
         return TeacherLlamaForCausalLM
+
+    if arch.startswith("smollm"):
+        return TeacherLlamaForCausalLM
+
     if TeacherQwen3ForCausalLM is not None:
         return TeacherQwen3ForCausalLM
     return AutoModelForCausalLM
@@ -379,6 +403,25 @@ def train_end_to_end(
         accelerator.print(f"[Resume] Fast-forwarding dataloader by {batches_to_skip} batches...")
         train_dataloader = accelerator.skip_first_batches(train_dataloader, batches_to_skip)
 
+    # Resolve CCE components once (after prepare so DDP unwrap is stable).
+    use_cce = config.training.get("use_cut_cross_entropy", False)
+    if use_cce:
+        try:
+            from cut_cross_entropy import linear_cross_entropy as _cce_linear_cross_entropy
+        except ImportError as e:
+            raise ImportError(
+                "cut_cross_entropy is not installed. "
+                "Run: pip install cut-cross-entropy"
+            ) from e
+        _cce_body, _cce_classifier = _get_cce_components(
+            accelerator.unwrap_model(student_model)
+        )
+        accelerator.print(
+            f"[CCE] Using cut_cross_entropy loss "
+            f"(body={type(_cce_body).__name__}, "
+            f"classifier shape={tuple(_cce_classifier.shape)})"
+        )
+
     checkpoint_every = config.training.get("checkpoint_every", 32_500)
     local_batches = batches_to_skip  # track total batches seen in this stage
 
@@ -394,16 +437,37 @@ def train_end_to_end(
 
         with accelerator.accumulate(student_model):
             with accelerator.autocast():
-                output = student_model(inputs, labels=inputs, attention_mask=attention_mask)
-                loss = output.loss
+                if use_cce:
+                    # Call the transformer body directly — skips materialising the full
+                    # (batch * seq * vocab) logit tensor for the CE loss.
+                    # Note: _cce_body is the unwrapped body; gradients still sync via
+                    # per-parameter DDP hooks during accelerator.backward().
+                    body_out = _cce_body(inputs, attention_mask=attention_mask)
+                    hidden = body_out.last_hidden_state  # (B, T, H)
+                    shift_hidden = hidden[..., :-1, :].flatten(0, -2)
+                    shift_labels = inputs[..., 1:].flatten(0, -1)
+                    loss = _cce_linear_cross_entropy(shift_hidden, _cce_classifier, shift_labels)
 
-            if teacher_model is not None:
-                kl_loss = torch.nn.functional.kl_div(
-                    torch.nn.functional.log_softmax(output.logits, dim=-1),
-                    torch.nn.functional.softmax(teacher_logits, dim=-1),
-                    reduction="batchmean",
-                )
-                loss = loss + kl_loss
+                    if teacher_model is not None:
+                        # KL still requires full logits — apply lm_head on cached hidden.
+                        logits = accelerator.unwrap_model(student_model).lm_head(hidden)
+                        kl_loss = torch.nn.functional.kl_div(
+                            torch.nn.functional.log_softmax(logits, dim=-1),
+                            torch.nn.functional.softmax(teacher_logits, dim=-1),
+                            reduction="batchmean",
+                        )
+                        loss = loss + kl_loss
+                else:
+                    output = student_model(inputs, labels=inputs, attention_mask=attention_mask)
+                    loss = output.loss
+
+                    if teacher_model is not None:
+                        kl_loss = torch.nn.functional.kl_div(
+                            torch.nn.functional.log_softmax(output.logits, dim=-1),
+                            torch.nn.functional.softmax(teacher_logits, dim=-1),
+                            reduction="batchmean",
+                        )
+                        loss = loss + kl_loss
 
             if torch.isnan(loss):
                 accelerator.print("NaN loss encountered. Stopping training.")
