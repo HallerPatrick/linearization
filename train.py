@@ -92,6 +92,34 @@ def save_model(model, model_config, tokenizer, output_dir):
     tokenizer.save_pretrained(output_dir)
 
 
+def _save_resume_state(checkpoint_dir, optimizer, lr_scheduler, step, batches_done):
+    """Save optimizer/scheduler states and training position alongside a model checkpoint."""
+    torch.save(optimizer.state_dict(), os.path.join(checkpoint_dir, "optimizer.pt"))
+    torch.save(lr_scheduler.state_dict(), os.path.join(checkpoint_dir, "scheduler.pt"))
+    state = {"stage": "end_to_end", "step": step, "batches_done": batches_done}
+    with open(os.path.join(checkpoint_dir, "training_state.json"), "w") as f:
+        json.dump(state, f)
+
+
+def _load_resume_state(checkpoint_dir):
+    """Return (training_state_dict, optimizer_path, scheduler_path) from a checkpoint dir.
+
+    Returns None for optimizer/scheduler paths if the files don't exist (allows model-only resume).
+    """
+    state_path = os.path.join(checkpoint_dir, "training_state.json")
+    if not os.path.exists(state_path):
+        return None, None, None
+    with open(state_path) as f:
+        state = json.load(f)
+    opt_path = os.path.join(checkpoint_dir, "optimizer.pt")
+    sched_path = os.path.join(checkpoint_dir, "scheduler.pt")
+    return (
+        state,
+        opt_path if os.path.exists(opt_path) else None,
+        sched_path if os.path.exists(sched_path) else None,
+    )
+
+
 def push_model_to_hub(model_dir: str, repo_id: str, private: bool = False,
                       wandb_run_url: str = None):
     from huggingface_hub import HfApi
@@ -283,11 +311,36 @@ def initialize_model_and_teacher(config, accelerator, tokenizer, output_dir):
 def train_end_to_end(
     step, accelerator, train_dataloader, student_model, teacher_model,
     tokenizer, hf_model_config, config, output_dir,
+    resume_from=None,
 ):
+    """
+    resume_from: optional path to a checkpoint directory that contains
+    training_state.json (and optionally optimizer.pt / scheduler.pt).
+    When set, the dataloader is fast-forwarded past already-seen batches and
+    optimizer/scheduler states are restored.
+    """
     num_training_steps = math.ceil(
         len(train_dataloader) / config.training.gradient_accumulation_steps
     )
     accelerator.print(f"[End-to-End] Total training steps: {num_training_steps}")
+
+    # --- resolve resume state ---------------------------------------------------
+    resume_state, opt_resume_path, sched_resume_path = (None, None, None)
+    batches_to_skip = 0
+    if resume_from is not None:
+        resume_state, opt_resume_path, sched_resume_path = _load_resume_state(resume_from)
+        if resume_state is not None:
+            batches_to_skip = resume_state.get("batches_done", 0)
+            step = resume_state.get("step", step)
+            accelerator.print(
+                f"[Resume] Skipping {batches_to_skip} batches, resuming at step {step}"
+            )
+        else:
+            accelerator.print(
+                f"[Resume] No training_state.json found in {resume_from}; "
+                "starting stage from beginning with loaded weights."
+            )
+    # ---------------------------------------------------------------------------
 
     progress_bar = tqdm(
         total=num_training_steps // accelerator.num_processes,
@@ -296,6 +349,8 @@ def train_end_to_end(
         colour="GREEN",
         disable=not accelerator.is_local_main_process,
     )
+    if batches_to_skip:
+        progress_bar.update(batches_to_skip)
 
     optimizer = get_optimizer(
         config.training.get("optimizer", "adamw"),
@@ -312,7 +367,20 @@ def train_end_to_end(
         accelerator.prepare(student_model, teacher_model, optimizer, lr_scheduler, train_dataloader)
     )
 
+    # Restore optimizer / scheduler states after prepare() so accelerate wrappers are in place.
+    if opt_resume_path is not None:
+        accelerator.print(f"[Resume] Loading optimizer state from {opt_resume_path}")
+        optimizer.load_state_dict(torch.load(opt_resume_path, map_location="cpu"))
+    if sched_resume_path is not None:
+        accelerator.print(f"[Resume] Loading scheduler state from {sched_resume_path}")
+        lr_scheduler.load_state_dict(torch.load(sched_resume_path, map_location="cpu"))
+
+    if batches_to_skip:
+        accelerator.print(f"[Resume] Fast-forwarding dataloader by {batches_to_skip} batches...")
+        train_dataloader = accelerator.skip_first_batches(train_dataloader, batches_to_skip)
+
     checkpoint_every = config.training.get("checkpoint_every", 32_500)
+    local_batches = batches_to_skip  # track total batches seen in this stage
 
     for batch in train_dataloader:
         inputs = batch["input_ids"].to(accelerator.device)
@@ -350,6 +418,7 @@ def train_end_to_end(
             optimizer.zero_grad()
 
         step += 1
+        local_batches += 1
 
         if (
             step % config.training.log_every_step == 0
@@ -362,10 +431,16 @@ def train_end_to_end(
             progress_bar.set_postfix({"loss": loss.item(), "lr": last_lr})
             progress_bar.update(config.training.log_every_step)
 
-        if step % checkpoint_every == 0 and accelerator.is_main_process:
-            checkpoint_dir = os.path.join(output_dir, f"checkpoint-{step}")
-            save_model(accelerator.unwrap_model(student_model), hf_model_config, tokenizer, checkpoint_dir)
-            accelerator.print(f"Checkpoint saved to: {checkpoint_dir}")
+        if step % checkpoint_every == 0:
+            accelerator.wait_for_everyone()
+            if accelerator.is_main_process:
+                checkpoint_dir = os.path.join(output_dir, f"checkpoint-{step}")
+                save_model(
+                    accelerator.unwrap_model(student_model), hf_model_config, tokenizer,
+                    checkpoint_dir,
+                )
+                _save_resume_state(checkpoint_dir, optimizer, lr_scheduler, step, local_batches)
+                accelerator.print(f"Checkpoint saved to: {checkpoint_dir}")
 
     accelerator.print(f"End-to-end training done (process {accelerator.process_index})")
     return step, student_model, teacher_model, optimizer
@@ -646,6 +721,18 @@ def run_training(config_path: str):
     config.model.apply_rope = config.model.get("apply_rope", False)
     config.training.setdefault("log_every_step", 1)
 
+    # --- resume-from-checkpoint resolution -------------------------------------
+    # When set, resume_from_checkpoint implies loading model weights (unless
+    # from_checkpoint is explicitly set) and restoring training position.
+    resume_from_checkpoint = config.training.get("resume_from_checkpoint", None)
+    if resume_from_checkpoint is not None:
+        if config.training.get("from_checkpoint") is None:
+            config.training.from_checkpoint = resume_from_checkpoint
+        resume_training_state, _, _ = _load_resume_state(resume_from_checkpoint)
+    else:
+        resume_training_state = None
+    # ---------------------------------------------------------------------------
+
     accelerator = _setup_accelerator_and_output(config)
 
     # Generate run_dir on rank 0 and broadcast so all nodes use the same path.
@@ -713,16 +800,35 @@ def run_training(config_path: str):
             init_kwargs={"wandb": {"name": run_dir}},
         )
 
+    # Determine which stage to start from when resuming.
+    # Stages are indexed 0-2; we only resume into stage 3 (index 2).
+    resume_stage_index = 0
+    if resume_training_state is not None and resume_training_state.get("stage") == "end_to_end":
+        resume_stage_index = 2  # skip stage_1 and stage_2
+        accelerator.print(
+            f"[Resume] Skipping stages 1 and 2; resuming end-to-end from "
+            f"step {resume_training_state.get('step', '?')}"
+        )
+
     model.train()
     num_steps = 0
-    for train_dataloader, training_fn in stage_dataloaders:
+    for stage_idx, (train_dataloader, training_fn) in enumerate(stage_dataloaders):
+        if stage_idx < resume_stage_index:
+            accelerator.print(f"[Resume] Skipping {training_fn.__name__} (already completed)")
+            continue
+
         if len(train_dataloader) == 0:
             continue
+
+        extra_kwargs = {}
+        if training_fn is train_end_to_end and resume_from_checkpoint is not None:
+            extra_kwargs["resume_from"] = resume_from_checkpoint
 
         accelerator.print(f"Process {accelerator.process_index}: starting {training_fn.__name__}")
         num_steps, model, teacher_model, optimizer = training_fn(
             num_steps, accelerator, train_dataloader, model, teacher_model,
             tokenizer, hf_model_config, config, output_dir,
+            **extra_kwargs,
         )
         accelerator.print(f"Process {accelerator.process_index}: finished {training_fn.__name__}")
 
