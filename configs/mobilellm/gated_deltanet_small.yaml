@@ -1,0 +1,59 @@
+description: "Attention Alignemnt Experiments"
+
+training:
+  model_name: "gated_deltanet.llama_gated_deltanet"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp2/hallepat/subq_dataset"
+  resume_from_checkpoint: null
+  from_checkpoint: null
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen" # Insert WandB Project Name
+  splits: "0.026|0.053|0.92"
+  # splits: "0.0|0.0|0.04"
+
+  stage_1:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 16
+  stage_2:
+    lr: 2e-3
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 16
+  stage_3:
+    lr: 3e-4
+    lr_scheduler: "linear"
+    batch_size: 24
+
+  optimizer: "adamw"
+  lr_1d: 0.007
+
+  push_to_hub: "PatrickHaller/mobilellm_tiny_gdn_512"
+  hub_private: True
+
+  checkpoint_every: 1024
+
+model:
+  context_length: 512
+  copy_teacher_params: True
+  freeze: False
+  # extra_configs:
+  #   num_attention_heads: 3
+
+teacher_model:
+  model_name: "facebook/MobileLLM-125M"
+  use: True
+
+dataset:
+  output_path: /vol/tmp2/hallepat/data/fineweb-3B-mobile
+  hugging_face_id: ["PatrickHaller/fineweb-3B"]
+  # hugging_face_id: ["Salesforce/wikitext", "wikitext-2-v1"]
+  split: "train"
+  subset: "1.0"
+  
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "facebook/MobileLLM-125M"
+
+

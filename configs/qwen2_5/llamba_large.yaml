@@ -1,0 +1,66 @@
+description: "Llamba (discrete Mamba + Llama MLP) from pretrained config"
+
+training:
+  model_name: "llamba.llamba"
+  gradient_accumulation_steps: 1
+  output_dir: "/vol/tmp2/hallepat/subq_dataset"
+  from_checkpoint: /vol/tmp2/hallepat/subq_dataset/run_20260310-2359/checkpoint-last
+  log_every_step: 10
+  wandb_enabled: true
+  wandb_project: "xqwen"
+  # splits: "0.0|0.0|0.1"
+  # splits: "0.024|0.08|0.21"
+  # splits: "0.0|0.0|0.21"
+  # splits: "0.024|0.176|0.0"
+  # splits: "0.024|0.08|0.21"
+  # splits: "0.024|0.176|0.0"
+  splits: "0.0|0.0|0.8"
+  # splits: "0.026|0.053|0.92"
+  # splits: "0.0|0.053|0.92"
+  optimizer: "adamw"
+  lr_1d: null
+
+  stage_1:
+    lr: 2e-4
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_2:
+    lr: 2e-3
+    lr_scheduler: "warmup_stable_decay"
+    batch_size: 8
+  stage_3:
+    lr: 2e-4
+    lr_scheduler: "linear"
+    batch_size: 6
+
+model:
+  context_length: 512
+  copy_teacher_params: true
+  freeze: false
+  from_scratch: false
+  extra_configs:
+    # num_hidden_layers: 30
+    num_attention_heads: 32
+    # intermediate_size: 1536
+    # Optional overrides for ssm_cfg defaults
+    # ssm_cfg:
+    #   d_state: 32
+    #   expand: 1
+    #   chunk_size: 128
+    #   activation: "identity"
+    #   bias: false
+
+teacher_model:
+  model_name: "HuggingFaceTB/SmolLM2-1.7B"
+  use: true
+
+dataset:
+  output_path: /vol/tmp2/hallepat/data/fineweb-10B
+  hugging_face_id: ["PatrickHaller/fineweb-10B"]
+  split: "train"
+  subset: "1.0"
+
+tokenizer:
+  type: "pretrained"
+  pretrained_class: "llamatokenizer"
+  pretrained_id: "HuggingFaceTB/SmolLM2-1.7B"

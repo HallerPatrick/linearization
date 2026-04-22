@@ -185,7 +185,7 @@ def _resolve_teacher_cls(config, teacher_hf_config):
     if arch.startswith("llama") and TeacherLlamaForCausalLM is not None:
         return TeacherLlamaForCausalLM
 
-    if arch.startswith("smollm"):
+    if arch.startswith("smollm") or arch.startswith("mobilellm"):
         return TeacherLlamaForCausalLM
 
     if TeacherQwen3ForCausalLM is not None:
@@ -214,27 +214,29 @@ def _load_student_from_checkpoint(model_name, checkpoint, accelerator):
     import importlib
     model_module = importlib.import_module(f"students.{model_name}")
     hf_cfg = model_module.StudentConfig.from_pretrained(checkpoint)
-    model = model_module.StudentModel(hf_cfg)
+    model = model_module.StudentModel.from_pretrained(checkpoint)
 
-    safe_path = os.path.join(checkpoint, "model.safetensors")
-    bin_path = os.path.join(checkpoint, "pytorch_model.bin")
-    if os.path.exists(safe_path):
-        from safetensors.torch import load_file
-        state_dict = load_file(safe_path)
-    elif os.path.exists(bin_path):
-        state_dict = torch.load(bin_path, map_location="cpu")
-    else:
-        raise FileNotFoundError(
-            f"No weights found in {checkpoint} "
-            "(expected model.safetensors or pytorch_model.bin)."
-        )
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
-    if missing or unexpected:
-        accelerator.print(
-            f"Checkpoint loaded with {len(missing)} missing and "
-            f"{len(unexpected)} unexpected keys."
-        )
     return model, hf_cfg
+
+    # safe_path = os.path.join(checkpoint, "model.safetensors")
+    # bin_path = os.path.join(checkpoint, "pytorch_model.bin")
+    # if os.path.exists(safe_path):
+    #     from safetensors.torch import load_file
+    #     state_dict = load_file(safe_path)
+    # elif os.path.exists(bin_path):
+    #     state_dict = torch.load(bin_path, map_location="cpu")
+    # else:
+    #     raise FileNotFoundError(
+    #         f"No weights found in {checkpoint} "
+    #         "(expected model.safetensors or pytorch_model.bin)."
+    #     )
+    # missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    # if missing or unexpected:
+    #     accelerator.print(
+    #         f"Checkpoint loaded with {len(missing)} missing and "
+    #         f"{len(unexpected)} unexpected keys."
+    #     )
+    # return model, hf_cfg
 
 
 def _build_student_from_scratch(model_name, config, tokenizer):
@@ -278,7 +280,7 @@ def initialize_model_and_teacher(config, accelerator, tokenizer, output_dir):
     config.model.vocab_size = tokenizer.vocab_size
     accelerator.print("Creating model...")
 
-    teacher_hf_config = AutoConfig.from_pretrained(config.teacher_model.model_name)
+    teacher_hf_config = AutoConfig.from_pretrained(config.teacher_model.model_name, trust_remote_code=True)
     model_name = config.training.model_name
     checkpoint = config.training.from_checkpoint
 
@@ -858,10 +860,11 @@ def run_training(config_path: str):
         config_dict = OmegaConf.to_container(OmegaConf.select(config, "model"))
         config_dict["num_params"] = num_params
         config_dict["num_params_human"] = num_params_human
+        wandb_name = config.training.get("wandb_name", run_dir)
         accelerator.init_trackers(
             project_name=wandb_project,
             config=config_dict,
-            init_kwargs={"wandb": {"name": run_dir}},
+            init_kwargs={"wandb": {"name": wandb_name}},
         )
 
     # Determine which stage to start from when resuming.
@@ -973,10 +976,11 @@ def run_lr_finder(config_path: str):
         wandb_project = config.training.get("wandb_project", "mohawk")
         config_dict = OmegaConf.to_container(OmegaConf.select(config, "model"))
         config_dict.update({"num_params": num_params, "num_params_human": num_params_human})
+        wandb_name = config.training.get("wandb_name", run_dir)
         accelerator.init_trackers(
             project_name=wandb_project,
             config=config_dict,
-            init_kwargs={"wandb": {"name": run_dir}},
+            init_kwargs={"wandb": {"name": wandb_name}},
         )
 
     lr_cfg = config.training.get("lr_finder", {})
@@ -1164,7 +1168,15 @@ def preprocess(config, accelerator=None, ask_for_overwrite=False):
 
         tokenizer_id = config.tokenizer.pretrained_id
         accelerator.print(f"Loading tokenizer: {tokenizer_id}")
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
+        if "MobileLLM" in tokenizer_id:
+            tokenizer = AutoTokenizer.from_pretrained(
+                tokenizer_id,
+                unk_token="<unk>",
+                eos_token="</s>",
+                bos_token="<s>"
+            )
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
         if tokenizer.pad_token is None:
             assert tokenizer.eos_token is not None, "Tokenizer has no eos_token."
             tokenizer.pad_token = tokenizer.eos_token

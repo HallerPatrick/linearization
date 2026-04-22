@@ -3,7 +3,7 @@ import torch
 
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import Qwen3Config, OPTConfig, Gemma3TextConfig, LlamaConfig
+from transformers import Qwen2Config, Qwen3Config, OPTConfig, Gemma3TextConfig, LlamaConfig
 from transformers.modeling_rope_utils import rope_config_validation
 
 
@@ -167,6 +167,50 @@ class xQwen3Config(Qwen3Config):
         self.output_logit_soft_cap = output_logit_soft_cap
         self.weight_mode = weight_mode
         super().__init__(**qwen3_kwargs)
+
+class xQwen2Config(Qwen2Config):
+    model_type = "xqwen2"
+    def __init__(
+        self,
+        chunkwise_kernel: ChunkwiseKernelType = "chunkwise--native_autograd",
+        sequence_kernel: SequenceKernelType = "native_sequence__native",
+        step_kernel: StepKernelType = "native",
+        mode: BackendModeType = "inference",
+        chunk_size: int = 64,
+        return_last_states: bool = True,
+        autocast_kernel_dtype: DtypeType = "bfloat16",
+        eps: float = 1e-6,
+        inference_state_dtype: DtypeType = "float32",
+        ffn_proj_factor: float = 2.667,
+        ffn_round_up_to_multiple_of: int = 64,
+        gate_soft_cap: float = 15.0,
+        output_logit_soft_cap: float = 30.0,
+        weight_mode: WeightModeType = "single",
+        apply_rope: bool = False,
+        **qwen2_kwargs,
+    ):
+        self.chunkwise_kernel = chunkwise_kernel
+        self.sequence_kernel = sequence_kernel
+        self.step_kernel = step_kernel
+        self.mode = mode
+        self.chunk_size = chunk_size
+        self.return_last_states = return_last_states
+        self.autocast_kernel_dtype = autocast_kernel_dtype
+        self.eps = eps
+        self.inference_state_dtype = inference_state_dtype
+        self.ffn_proj_factor = ffn_proj_factor
+        self.ffn_round_up_to_multiple_of = ffn_round_up_to_multiple_of
+        self.gate_soft_cap = gate_soft_cap
+        self.output_logit_soft_cap = output_logit_soft_cap
+        self.weight_mode = weight_mode
+        self.apply_rope = apply_rope
+        super().__init__(**qwen2_kwargs)
+        self.num_heads = self.num_attention_heads
+        self.head_dim = self.hidden_size // self.num_attention_heads
+        rope_theta = getattr(self, 'rope_theta', 10000.0)
+        if not hasattr(self, 'rope_parameters') or self.rope_parameters is None:
+            self.rope_parameters = {"rope_type": "default", "rope_theta": rope_theta}
+
 
 class xLlamaConfig(LlamaConfig):
     model_type = "xllama"
@@ -429,6 +473,34 @@ class mLSTMLayerConfig(_mLSTMLayerConfig):
             num_heads=config.num_attention_heads,
             head_dim=config.hidden_size // config.num_attention_heads,
             use_bias=config.attention_bias,
+            norm_eps=config.rms_norm_eps,
+            norm_reduction_force_float32=True,
+            qk_dim_factor=1,
+            v_dim_factor=1,
+            num_key_value_heads=config.num_key_value_heads,
+            gate_soft_cap=config.gate_soft_cap,
+            weight_mode=config.weight_mode,
+            apply_rope=getattr(config, "apply_rope", False),
+            mlstm_backend=mLSTMBackendConfig(
+                chunkwise_kernel=config.chunkwise_kernel,
+                sequence_kernel=config.sequence_kernel,
+                step_kernel=config.step_kernel,
+                mode=config.mode,
+                chunk_size=config.chunk_size,
+                return_last_states=config.return_last_states,
+                autocast_kernel_dtype=config.autocast_kernel_dtype,
+                eps=config.eps,
+                inference_state_dtype=config.inference_state_dtype,
+            )
+        )
+
+    @classmethod
+    def from_xqwen2_config(cls, config: xQwen2Config):
+        return cls(
+            hidden_size=config.hidden_size,
+            num_heads=config.num_attention_heads,
+            head_dim=config.hidden_size // config.num_attention_heads,
+            use_bias=getattr(config, 'attention_bias', False),
             norm_eps=config.rms_norm_eps,
             norm_reduction_force_float32=True,
             qk_dim_factor=1,
